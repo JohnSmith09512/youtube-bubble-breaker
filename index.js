@@ -39,25 +39,6 @@ function getSubscriptions(){
 	return subscriptions
 }
 
-function getVideos(){
-	let videos = []
-	for(let element of document.querySelectorAll("ytd-browse ytd-rich-item-renderer")){
-		if(!element.querySelector("a.ytd-thumbnail")) continue; // ads
-		if(!element.querySelector(".ytd-channel-name a")) continue; // mixes
-		let progress
-		if(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer")){
-			progress = Number(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer").getAttribute("style").match(/width:\s*(\d+)\%/)[1]) / 100
-		}
-		videos.push({
-			id: element.querySelector("a.ytd-thumbnail").getAttribute("href").match(/\?v\=(.*?)(?:\&|$)/m)[1],
-			channelUrl: element.querySelector(".ytd-channel-name a").getAttribute("href"),
-			progress,
-			element
-		})
-	}
-	return videos
-}
-
 function getMixes(){
 	let mixes = []
 	for(let element of document.querySelectorAll("ytd-browse ytd-rich-item-renderer")){
@@ -72,7 +53,38 @@ function getMixes(){
 }
 
 function getMedia(){
-	// TODO: all types of content: music playlists, mixes, videos, playlists, movies etc..
+	let media = []
+	for(let element of document.querySelectorAll("ytd-rich-item-renderer")){
+		if(!element.querySelector("a.ytd-thumbnail")) continue; // ads
+		let progress
+		let channel
+		let title
+		let type = "video"
+		if(!element.querySelector(".ytd-channel-name a")){
+			type = "mix"
+		}
+		if(element.querySelector(".ytd-rich-grid-slim-media")){
+			type = "movie"
+		}
+		if(element.querySelector(".ytd-channel-name a")){
+			channel = element.querySelector(".ytd-channel-name a").getAttribute("href")
+		}
+		if(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer")){
+			progress = Number(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer").getAttribute("style").match(/width:\s*(\d+)\%/)[1]) / 100
+		}
+		if(element.querySelector("#video-title-link yt-formatted-string")){
+			title = element.querySelector("#video-title-link yt-formatted-string").textContent
+		}
+		media.push({
+			id: element.querySelector("a.ytd-thumbnail").getAttribute("href").match(/\?v\=(.*?)(?:\&|$)/m)[1],
+			type,
+			channel,
+			progress,
+			title,
+			element
+		})
+	}
+	return media
 }
 
 function logImpression(key){
@@ -109,22 +121,19 @@ async function waitForPopup(){
 	})
 }
 
-function locateMenuElement(videoId){
-	for(let element of document.querySelectorAll("a.ytd-thumbnail")){
-		if((element.getAttribute("href")||"").match(videoId)){
-			return element.closest("ytd-rich-item-renderer").querySelector(".yt-icon-button")
-		}
+async function sendNotInterested(element){
+	element.querySelector(".yt-icon-button").click()
+	await waitForPopup()
+	let options = document.querySelectorAll("ytd-menu-popup-renderer ytd-menu-service-item-renderer")
+	if(options.length == 1){
+		options[0].click()
+	}else{
+		options[4].click()
 	}
 }
 
-async function sendNotInterested(videoId){
-	locateMenuElement(videoId).click()
-	await waitForPopup()
-	document.querySelector("ytd-menu-popup-renderer ytd-menu-service-item-renderer:nth-child(4)").click()
-}
-
-async function sendDontRecommendChannel(videoId){
-	locateMenuElement(videoId).click()
+async function sendDontRecommendChannel(element){
+	element.querySelector(".yt-icon-button").click()
 	await waitForPopup()
 	document.querySelector("ytd-menu-popup-renderer ytd-menu-service-item-renderer:nth-child(5)").click()
 }
@@ -148,33 +157,46 @@ async function purge(){
 		}
 	}
 
-	let videos = getVideos()
-
 	if(window.location.href.match(/youtube\.com\/watch/m)){ // Watching video
 	}
 
-	for(let video of videos){
-		
-		// Recommendation for a subscribed channel
-		if(STORAGE.subscriptions.find(subscription=>subscription.url==video.channelUrl)){
-			console.log(video)
-			await sendDontRecommendChannel(video.id)
-		}
+	for(let media of getMedia()){
 
-		// Channel got recommended too many times
-		let impressionChannel = STORAGE.impressions[video.channelUrl]
-		if(impressionChannel && impressionChannel.impressions.length > THRESHOLD_CHANNEL_IMPRESSIONS){
-			await sendDontRecommendChannel(video.id)
-			delete STORAGE.impressions[video.channelUrl]
-			storageCommit()
+		try{
+			if(media.type == "video"){
+				// Recommendation for a subscribed channel
+				if(STORAGE.subscriptions.find(subscription=>subscription.url==media.channel)){
+					await sendDontRecommendChannel(media.element)
+				}
+	
+				// Channel got recommended too many times
+				let impressionChannel = STORAGE.impressions[media.channel]
+				if(impressionChannel && impressionChannel.impressions.length > THRESHOLD_CHANNEL_IMPRESSIONS){
+					await sendDontRecommendChannel(media.element)
+					delete STORAGE.impressions[media.channel]
+					storageCommit()
+				}
+	
+				// Video is already watched 
+				if(media.progress > THRESHOLD_VIDEO_PROGRESS){
+					await sendNotInterested(media.element)
+				}
+	
+				// Video got recommended too many times
+			}
+	
+			if(media.type == "mix"){
+				// Mix of a channel you already subscribed to
+				let match = media.title.match(/[^-]+ -\s*(.+)/m)
+				if(match && STORAGE.subscriptions.find(subscription => subscription.name == match[1])){
+					await sendNotInterested(media.element)
+				}
+	
+			}
+		}catch(error){
+			console.log(media)
+			console.error(error)
 		}
-
-		// Video is already watched 
-		if(video.progress > THRESHOLD_VIDEO_PROGRESS){
-			await sendNotInterested(video.id)
-		}
-
-		// Video got recommended too many times
 	}
 
 	storageGarbageCollect()
@@ -220,13 +242,13 @@ function observeScrollInteractions(){
 	}
 
 	rateLimitTimeoutScroll = setTimeout(()=>{
-		for(let video of getVideos()){
-			if(isElementVisible(video.element)){
-				logImpression(video.id)
-				logImpression(video.channelUrl)
+		for(let media of getMedia()){
+			if(media.type != "video") continue;
+			if(isElementVisible(media.element)){
+				logImpression(media.id)
+				logImpression(media.channel)
 			}
 		}
-		console.log(STORAGE)
 	}, 200)
 }
 
@@ -234,7 +256,7 @@ let observer = new MutationObserver((mutations) => {
 	for(let mutation of mutations){
 		if(mutation.addedNodes.length){
 			for(let addedNode of mutation.addedNodes){
-				if(addedNode.childNodes.length && addedNode.childNodes[0].classList.contains("ytd-rich-item-renderer")){
+				if(addedNode.childNodes.length && addedNode.classList.contains("ytd-rich-grid-media")){
 					// New video loaded, but we need to wait a bit for others to load
 					if(rateLimitTimeoutMutation){
 						clearTimeout(rateLimitTimeoutMutation)

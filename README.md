@@ -1,6 +1,8 @@
 # YouTube Bubble Breaker
 
-Firefox, Chrome and Edge browser extension for automatically de-training YouTube suggestion algorithm from filter bubble bias to provide more diverse content.
+![actions](/assets/logo.png)
+
+Firefox, Chrome and Edge browser extension for automatically de-training YouTube suggestion algorithm from filter bubble bias to provide more diverse content suggestion.
 
 ## Install
 
