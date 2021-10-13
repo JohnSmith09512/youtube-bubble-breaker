@@ -1,4 +1,5 @@
 
+let MAX_STORAGE_IMPRESSIONS_SIZE = 1024*1024*2
 let TTL_SUBSCRIPTIONS = 1000 * 60 * 15 
 let TTL_IMPRESSIONS = 1000 * 60 * 60 * 24 * 7
 let THRESHOLD_INTERACTION_SCROLL = 1000 * 7
@@ -161,7 +162,7 @@ async function waitForPopup(){
 }
 
 async function sendNotInterested(element){
-	element.querySelector(".yt-icon-button").click()
+	(await waitForQuerySelector(element, ".yt-icon-button")).click()
 	await waitForPopup()
 	let options = document.querySelectorAll("ytd-menu-popup-renderer ytd-menu-service-item-renderer")
 	if(options.length == 1){
@@ -172,7 +173,7 @@ async function sendNotInterested(element){
 }
 
 async function sendDontRecommendChannel(element){
-	element.querySelector(".yt-icon-button").click()
+	(await waitForQuerySelector(element, ".yt-icon-button")).click()
 	await waitForPopup()
 	document.querySelector("ytd-menu-popup-renderer ytd-menu-service-item-renderer:nth-child(5)").click()
 }
@@ -267,11 +268,21 @@ async function storageLoad(){
 function storageGarbageCollect(){
 	// Remove unused data from storage 
 	// extension storage is limited to only 5MB
+
+	// Pre sort old to new for optimization
+	let sortedImpressions = Object.entries(STORAGE.impressions).sort(item=>item[1].updated).reverse() 
+
+	let sortedImpressionsIndex = 0
+	while(JSON.stringify(STORAGE.impressions).length > MAX_STORAGE_IMPRESSIONS_SIZE){
+		let [impressionKey, impression] = sortedImpressions[sortedImpressionsIndex]
+		delete STORAGE.impressions[impressionKey] 
+		sortedImpressionsIndex += 1
+	}
+
 	for(let [impressionKey, impression] of Object.entries(STORAGE.impressions)){
 		if(Number(new Date()) - impression.updated > TTL_IMPRESSIONS){
 			delete STORAGE.impressions[impressionKey] 
 		}
-		// TODO: sort by updated/created and prune if X MB threshold is reached
 	}
 	storageCommit()
 }
@@ -377,6 +388,7 @@ async function init(){
 	await waitForPageLoad()
 	
 	await storageLoad()
+	await storageGarbageCollect()
 	console.log(STORAGE)
 	
 	if(window.location.host == "www.youtube.com"){
