@@ -175,6 +175,8 @@ async function purge(){
 
 	await storageLoad()
 
+	let scrollTop = document.querySelector("html").scrollTop
+
 	if(window.location.href.match(/youtube\.com\/?$/m)){ // Main page
 		
 		// Updated list of subscriptions
@@ -227,6 +229,8 @@ async function purge(){
 			console.error(error)
 		}
 	}
+
+	document.querySelector("html").scrollTop = scrollTop
 
 	storageGarbageCollect()
 }
