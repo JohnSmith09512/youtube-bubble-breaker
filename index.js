@@ -8,6 +8,11 @@ let THRESHOLD_CHANNEL_IMPRESSIONS = 10
 let THRESHOLD_VIDEO_PROGRESS = 0.2
 let STORAGE
 
+let impressionCycleStarted = false
+let impressionCycleIds = []
+let scrollInteractionExposureTimeouts = []
+let rateLimitTimeoutScroll
+let rateLimitTimeoutMutation
 
 function isElementVisible(element) {
 	let rectangle = element.getBoundingClientRect()
@@ -67,11 +72,17 @@ function getMedia(){
 		let channel
 		let channelName
 		let title
+		let time
 		let type = "video"
 
 		let elementTitle = element.querySelector("#video-title-link yt-formatted-string") || element.querySelector("#video-title")
 		if(elementTitle){
 			title = elementTitle.getAttribute("title") || elementTitle.textContent
+		}
+
+		let elementTime = element.querySelector(".ytd-thumbnail-overlay-time-status-renderer")
+		if(elementTime){
+			time = elementTime.textContent
 		}
 
 		let elementChannel = element.querySelector(".ytd-channel-name a") 
@@ -89,7 +100,7 @@ function getMedia(){
 			progress = Number(elementProgress.getAttribute("style").match(/width:\s*(\d+)\%/)[1]) / 100
 		}
 
-		if(!elementTitle){
+		if(!elementTime){
 			type = "mix"
 		}
 		if(element.querySelector(".ytd-rich-grid-slim-media")){
@@ -99,6 +110,7 @@ function getMedia(){
 		media.push({
 			id: element.querySelector("a.ytd-thumbnail").getAttribute("href").match(/\?v\=(.*?)(?:\&|$)/m)[1],
 			type,
+			time,
 			channel,
 			channelName,
 			progress,
@@ -193,6 +205,10 @@ async function purge(){
 
 	for(let media of getMedia()){
 
+		if(impressionCycleIds.indexOf(media.id) != -1) continue;
+
+		impressionCycleIds.push(media.id)
+
 		try{
 			if(media.type == "video"){
 				// Recommendation for a subscribed channel
@@ -231,7 +247,6 @@ async function purge(){
 	}
 
 	document.querySelector("html").scrollTop = scrollTop
-
 	storageGarbageCollect()
 }
 
@@ -261,8 +276,6 @@ function storageGarbageCollect(){
 	storageCommit()
 }
 
-let scrollInteractionExposureTimeouts = []
-let rateLimitTimeoutScroll
 
 // Log interactions based on if element is visible for certain amount of time
 function observeScrollInteractions(){
@@ -285,7 +298,6 @@ function observeScrollInteractions(){
 	}, 200)
 }
 
-let rateLimitTimeoutMutation
 let observer = new MutationObserver((mutations) => {
 	for(let mutation of mutations){
 		if(mutation.addedNodes.length){
@@ -302,29 +314,28 @@ let observer = new MutationObserver((mutations) => {
 	}
 })
 
-let impressionCycleBegun = false
+function startImpressionCycle(){
+	if(impressionCycleStarted) return;
 
-function beginImpressionCycle(){
-	try{
-		purge()
-	}catch(error){
-		console.log(error)
-	}
-	impressionCycleBegun = true
+	impressionCycleStarted = true
+
 	document.addEventListener("scroll", observeScrollInteractions)
 	observer.observe(document.body, {
 		childList: true,
 		subtree: true,
 		attributes: true
 	})
+	purge()
 }
 
 function endImpressionCycle(){
-	if(impressionCycleBegun){
-		impressionCycleBegun = false
-		document.removeEventListener("scroll", observeScrollInteractions)
-		observer.disconnect()
-	}
+	if(!impressionCycleStarted) return;
+
+	impressionCycleStarted = false
+	impressionCycleIds = []
+
+	document.removeEventListener("scroll", observeScrollInteractions)
+	observer.disconnect()
 }
 
 async function waitForPageLoad(){
@@ -369,7 +380,7 @@ async function init(){
 	console.log(STORAGE)
 	
 	if(window.location.host == "www.youtube.com"){
-		beginImpressionCycle()
+		startImpressionCycle()
 	}
 
 	// There is no location change event, only way is to poll
@@ -381,7 +392,7 @@ async function init(){
 			endImpressionCycle()
 
 			if(window.location.host == "www.youtube.com"){
-				beginImpressionCycle()
+				startImpressionCycle()
 			}	
 		}
 	}, 100)
