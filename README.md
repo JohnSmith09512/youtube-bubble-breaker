@@ -2,7 +2,7 @@
 
 ![actions](/assets/logo.png)
 
-Firefox, Chrome and Edge browser extension for automatically de-training YouTube suggestion algorithm from filter bubble bias to provide more diverse content suggestion.
+Browser extension for automatically de-training YouTube suggestion algorithm from [filter bubble bias](https://en.wikipedia.org/wiki/Filter_bubble) to provide more diverse content suggestion.
 
 ## Install
 

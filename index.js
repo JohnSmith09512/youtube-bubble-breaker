@@ -54,37 +54,63 @@ function getMixes(){
 
 function getMedia(){
 	let media = []
-	for(let element of document.querySelectorAll("ytd-rich-item-renderer")){
+	let selector = "ytd-rich-item-renderer"
+
+	if(window.location.href.match(/youtube\.com\/watch/m)){ // Watching video
+		selector = "ytd-compact-video-renderer"
+	}
+
+	for(let element of document.querySelectorAll(selector)){
 		if(!element.querySelector("a.ytd-thumbnail")) continue; // ads
+
 		let progress
 		let channel
+		let channelName
 		let title
 		let type = "video"
-		if(!element.querySelector(".ytd-channel-name a")){
+
+		let elementTitle = element.querySelector("#video-title-link yt-formatted-string") || element.querySelector("#video-title")
+		if(elementTitle){
+			title = elementTitle.getAttribute("title") || elementTitle.textContent
+		}
+
+		let elementChannel = element.querySelector(".ytd-channel-name a") 
+		if(elementChannel){
+			channel = elementChannel.getAttribute("href")
+		}
+
+		let elementChannelName = element.querySelector(".ytd-channel-name")
+		if(elementChannelName){
+			channelName = elementChannelName.getAttribute("")
+		}
+
+		let elementProgress = element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer") || element.querySelector("#progress")
+		if(elementProgress){
+			progress = Number(elementProgress.getAttribute("style").match(/width:\s*(\d+)\%/)[1]) / 100
+		}
+
+		if(!elementTitle){
 			type = "mix"
 		}
 		if(element.querySelector(".ytd-rich-grid-slim-media")){
 			type = "movie"
 		}
-		if(element.querySelector(".ytd-channel-name a")){
-			channel = element.querySelector(".ytd-channel-name a").getAttribute("href")
-		}
-		if(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer")){
-			progress = Number(element.querySelector(".ytd-thumbnail-overlay-resume-playback-renderer").getAttribute("style").match(/width:\s*(\d+)\%/)[1]) / 100
-		}
-		if(element.querySelector("#video-title-link yt-formatted-string")){
-			title = element.querySelector("#video-title-link yt-formatted-string").textContent
-		}
+		
 		media.push({
 			id: element.querySelector("a.ytd-thumbnail").getAttribute("href").match(/\?v\=(.*?)(?:\&|$)/m)[1],
 			type,
 			channel,
+			channelName,
 			progress,
 			title,
 			element
 		})
 	}
 	return media
+}
+
+function getAccount(){
+	return Boolean(document.querySelector("ytd-masthead yt-img-shadow"))
 }
 
 function logImpression(key){
@@ -113,6 +139,7 @@ async function waitForPopup(){
 	await new Promise((resolve, reject) => {
 		let observer = new MutationObserver((mutations) => {
 			if(element.offsetParent){
+				console.log(element)
 				observer.disconnect()
 				resolve()
 			}
@@ -143,6 +170,8 @@ async function expandSubscriptions(){
 }
 
 async function purge(){
+
+	if(!getAccount()) return;
 
 	await storageLoad()
 
@@ -252,6 +281,7 @@ function observeScrollInteractions(){
 	}, 200)
 }
 
+let rateLimitTimeoutMutation
 let observer = new MutationObserver((mutations) => {
 	for(let mutation of mutations){
 		if(mutation.addedNodes.length){
@@ -280,7 +310,8 @@ function beginImpressionCycle(){
 	document.addEventListener("scroll", observeScrollInteractions)
 	observer.observe(document.body, {
 		childList: true,
-		subtree: true
+		subtree: true,
+		attributes: true
 	})
 }
 
@@ -329,7 +360,7 @@ async function waitForQuerySelector(target, querySelector, interval){
 async function init(){
 
 	await waitForPageLoad()
-
+	
 	await storageLoad()
 	console.log(STORAGE)
 	
