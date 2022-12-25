@@ -35,9 +35,9 @@ export let logInteraction = (impressionKey, interaction={})=>{
 
 export let logWord = (word)=>{
 	if(!storage.view().words[word]){
-		storage.view().words[word] = 0
+		storage.edit().words[word] = 0
 	}
-	storage.view().words[word] += 1
+	storage.edit().words[word] += 1
 }
 
 export let tokenizeTitle = (title)=>{
@@ -58,32 +58,57 @@ export let titleRepetitiveness = (title)=>{
 	return repetitiveness
 }
 
-export let removeMedia = (media: types.Media)=>{
+export let removeMedia = async(feedbackType: "doNotRecommendChannel" | "notInterested", media: types.Media, reason: string)=>{
+	if(media.element.querySelector(".ybb-placeholder")) return;
+	// TODO: It is possible to send additional signals to the response feedback form
+	if(feedbackType == "notInterested"){
+		await youtube.sendFeedback([media.feedbackTokens["notInterested"]])
+	}else if(feedbackType == "doNotRecommendChannel"){
+		await youtube.sendFeedback([media.feedbackTokens["doNotRecommendChannel"]])
+	}
+	(media.element.querySelector("ytd-thumbnail") as HTMLElement).style["pointer-events"] = "none"
 	let elementPlaceholder = document.createElement("div")
 	elementPlaceholder.className = "ybb-placeholder"
+	
 	{
 		let element = document.createElement("div")
-		element.innerText = media.title
+		element.innerText = "Video removed from suggestions"
 		elementPlaceholder.appendChild(element)
 	}
 	{
 		let element = document.createElement("div")
-		element.innerText = "Removed"
+		element.className = "reason"
+		element.innerText = `Reason: ${reason}`
 		elementPlaceholder.appendChild(element)
 	}
-	media.element.childNodes[0].replaceWith(elementPlaceholder)
+	{
+		let element = document.createElement("div")
+		element.className = "action"
+		element.innerText = "Undo"
+		element.onclick = async()=>{
+			console.log("undo")
+			if(feedbackType == "notInterested" && media.feedbackTokens["notInterestedUndo"]){
+				await youtube.sendFeedback([media.feedbackTokens["notInterestedUndo"]])
+			}else if(feedbackType == "doNotRecommendChannel"){
+				await youtube.sendFeedback([media.feedbackTokens["doNotRecommendChannelUndo"]])
+			}
+			(media.element.querySelector("ytd-thumbnail") as HTMLElement).style["pointer-events"] = ""
+			elementPlaceholder.remove()
+		}
+		elementPlaceholder.appendChild(element)
+	}
+	media.element.querySelector("ytd-rich-grid-media").prepend(elementPlaceholder)
 }
 
 export let purge = async()=>{
+
+	console.log("purge")
 
 	if(!getAccount()) return;
 
 	await storage.load()
 
-	let scrollTop = document.querySelector("html").scrollTop
-
 	if(window.location.href.match(/youtube\.com\/?$/m)){ // Main page
-		
 		// Updated list of subscriptions
 		if(Number(new Date()) - Number(storage.view().subscriptionsLastUpdated) > config.TTL_SUBSCRIPTIONS){
 			storage.edit().subscriptions = youtube.getSubscriptions()
@@ -109,44 +134,51 @@ export let purge = async()=>{
 
 				// Recommendation for a subscribed channel
 				if(storage.view().subscriptions.find(subscription=>subscription.id==(media as types.Video).channelId)){
-					await youtube.sendFeedback([media.feedbackTokens.doNotRecommendChannel])
-					removeMedia(media)
+					await removeMedia("doNotRecommendChannel", media, "Video from a subscribed channel")
+					continue
 				}
 	
 				// Channel got recommended too many times
 				let impressionChannel = storage.view().impressions[media.channelId]
 				if(impressionChannel && impressionChannel.impressions.length > config.THRESHOLD_CHANNEL_IMPRESSIONS){
-					await youtube.sendFeedback([media.feedbackTokens.doNotRecommendChannel])
+					await removeMedia("doNotRecommendChannel", media, "Channel recommended too often")
 					delete storage.edit().impressions[media.channelId]
-					removeMedia(media)
+					continue
 				}
 	
 				// Video is already watched 
 				if((media.lengthWatched / media.length) > config.THRESHOLD_VIDEO_PROGRESS){
-					await youtube.sendFeedback([media.feedbackTokens.notInterested])
-					removeMedia(media)
+					await removeMedia("notInterested", media, "Video already watched")
+					continue
 				}
 	
 				// Video got recommended too many times
+				let impressionVideo = storage.view().impressions[media.id]
+				if(impressionVideo && impressionVideo.impressions.length > config.THRESHOLD_VIDEO_IMPRESSIONS){
+					await removeMedia("notInterested", media, "Video recommended too often")
+					delete storage.edit().impressions[media.id]
+					continue
+				}
 			}
 	
-			// if(media.type == "playlist"){
-			// 	let match = media.title.match(/[^-]+ -\s*(.+)/m)
-			// 	if(match && storage.view().subscriptions.find(subscription => subscription.name == match[1])){
-			// 		await sendNotInterested(media.element)
-			// 	}
-	
-			// }
+			if(media.type == "playlist"){
+				// Playlist got recommended too many times
+				let impressionVideo = storage.view().impressions[media.id]
+				if(impressionVideo && impressionVideo.impressions.length > config.THRESHOLD_VIDEO_IMPRESSIONS){
+					await removeMedia("notInterested", media, "Playlist recommended too often")
+					delete storage.edit().impressions[media.id]
+					continue
+				}
+			}
+
 		}catch(error){
 			console.log(media)
 			console.error(error)
 		}
 	}
 
-	// document.querySelector("html").scrollTop = scrollTop
 	storage.garbageCollect()
 }
-
 
 // Log interactions based on if element is visible for certain amount of time
 export let observeScrollInteractions = ()=>{
@@ -158,10 +190,11 @@ export let observeScrollInteractions = ()=>{
 	}
 	rateLimitTimeoutScroll = setTimeout(()=>{
 		for(let media of youtube.getRecommendations()){
-			if(media.type != "video") continue;
 			if(utils.isElementVisible(media.element)){
 				logImpression(media.id)
-				logImpression(media.channelId)
+				if(media.type == "video"){
+					logImpression(media.channelId)
+				}
 			}
 		}
 	}, 200)
@@ -214,6 +247,8 @@ export let init = async()=>{
 	await storage.load()
 	await storage.garbageCollect()
 	await youtube.init()
+
+	console.log(storage.view())
 
 	// console.log(Object.entries(storage.view().words).sort((a,b)=>a[1]<b[1] as any).slice(0, 100))
 	

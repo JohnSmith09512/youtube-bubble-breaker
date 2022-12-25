@@ -15,7 +15,9 @@ export type Video = {
 	lengthWatched: number,
 	feedbackTokens: {
 		doNotRecommendChannel: string,
+		doNotRecommendChannelUndo: string,
 		notInterested: string
+		notInterestedUndo: string
 	}
 }
 

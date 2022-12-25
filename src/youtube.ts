@@ -17,10 +17,13 @@ export let getRecommendations = (): Array<types.Media>=>{
 			let menuItemDoNotRecommendChannel = menuItems.find(menuItem=>menuItem.menuServiceItemRenderer.icon.iconType=="REMOVE")
 			let menuItemNotInterested = menuItems.find(menuItem=>menuItem.menuServiceItemRenderer.icon.iconType=="NOT_INTERESTED")
 			if(itemType == "videoRenderer"){
+				let length = 0
 				let lengthWatched = 0 
-				let lengthWatchedMatch = item.navigationEndpoint.commandMetadata.webCommandMetadata.url.match(/t\=(\d+)s/)
-				if(lengthWatchedMatch){
-					lengthWatched = Number(lengthWatchedMatch[1])
+				if(item.lengthText){
+					length = utils.timestampToSeconds(item.lengthText.simpleText)
+				}
+				if(item.thumbnailOverlays && item.thumbnailOverlays.length && item.thumbnailOverlays[0].thumbnailOverlayResumePlaybackRenderer){
+					lengthWatched = Math.round(length * (item.thumbnailOverlays[0].thumbnailOverlayResumePlaybackRenderer.percentDurationWatched/100))
 				}
 				media.push({
 					type: "video",
@@ -28,11 +31,41 @@ export let getRecommendations = (): Array<types.Media>=>{
 					id: item.videoId,
 					title: item.title.runs[0].text,
 					channelId: item.owner.navigationEndpoint.browseEndpoint.browseId,
-					length: item.lengthText ? utils.timestampToSeconds(item.lengthText.simpleText) : 0,
+					length,
 					lengthWatched,
 					feedbackTokens: {
 						doNotRecommendChannel: menuItemDoNotRecommendChannel.menuServiceItemRenderer.serviceEndpoint.feedbackEndpoint.feedbackToken,
-						notInterested: menuItemNotInterested.menuServiceItemRenderer.serviceEndpoint.feedbackEndpoint.feedbackToken 
+						doNotRecommendChannelUndo: (
+							menuItemDoNotRecommendChannel
+								.menuServiceItemRenderer
+								.serviceEndpoint
+								.feedbackEndpoint
+								.actions[0]
+								.replaceEnclosingAction
+								.item
+								.notificationMultiActionRenderer
+								.buttons[0]
+								.buttonRenderer
+								.serviceEndpoint
+								.undoFeedbackEndpoint
+								.undoToken
+						),
+						notInterested: menuItemNotInterested.menuServiceItemRenderer.serviceEndpoint.feedbackEndpoint.feedbackToken,
+						notInterestedUndo: (
+							menuItemNotInterested
+								.menuServiceItemRenderer
+								.serviceEndpoint
+								.feedbackEndpoint
+								.actions[0]
+								.replaceEnclosingAction
+								.item
+								.notificationMultiActionRenderer
+								.buttons[0]
+								.buttonRenderer
+								.serviceEndpoint
+								.undoFeedbackEndpoint
+								.undoToken
+						)
 					}
 				})
 			}else if(itemType == "radioRenderer"){
@@ -56,7 +89,6 @@ export let getSubscriptions = (): Array<types.Channel>=>{
 	let subscriptions = []
 	let element = document["wrappedJSObject"].querySelector("#guide-renderer") as any
 	let data = JSON.parse(JSON.stringify(element.__data.data))
-	console.log(data)
 	let items = []
 	for(let item of data.items.find(item=>item.guideSubscriptionsSectionRenderer).guideSubscriptionsSectionRenderer.items){
 		if(item.guideEntryRenderer){

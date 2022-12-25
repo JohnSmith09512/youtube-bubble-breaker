@@ -36,8 +36,15 @@ export let view = (): SchemaSTORAGE=>{
 	return STORAGE
 }
 
+export let editTimeout 
 export let edit = (): SchemaSTORAGE=>{
-	// TODO: Commit mechanism
+	if(editTimeout){
+		clearTimeout(editTimeout)
+	}
+	editTimeout = setTimeout(()=>{
+		commit()
+		editTimeout = null
+	}, 500)
 	return STORAGE
 }
 
