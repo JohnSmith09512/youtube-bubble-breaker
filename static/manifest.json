@@ -8,12 +8,17 @@
 		"48": "icons/icon.png"
 	},
 	"permissions": [
-		"storage"
+		"storage",
+		"webRequest",
+		"activeTab",
+		"<all_urls>"
 	],
 	"content_scripts": [
 		{
 			"matches": ["<all_urls>"],
-			"js": ["./index.js"]
+			"js": ["./index.js"],
+			"css": ["./styles.css"],
+			"run_at": "document_start"
 		}
 	]
 }
